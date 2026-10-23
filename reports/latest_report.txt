@@ -1,0 +1,13 @@
+5G Telecom Network Performance Logger report
+Data source: SIMULATED ONLY (not actual 5G performance)
+Records analyzed: 1
+Malformed CSV rows skipped: 0
+Invalid measurements skipped: 0
+Latency: avg 12.00 ms, min 12.00 ms, max 12.00 ms
+Throughput: avg 415.00 Mbps, min 415.00 Mbps, max 415.00 Mbps
+Packet loss: avg 4.98 %, min 4.98 %, max 4.98 %
+CPU utilization: avg 63.00 %, min 63.00 %, max 63.00 %
+Memory utilization: avg 40.00 %, min 40.00 %, max 40.00 %
+Data quality: COMPLETE
+Threshold KPI violations: 1
+Overall status: VIOLATION

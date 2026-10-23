@@ -1,0 +1,2 @@
+timestamp,latency_ms,throughput_mbps,packet_loss_percent,cpu_utilization_percent,memory_utilization_percent,source
+1792605744,12.00,415.00,4.98,63.00,40.00,SIMULATED
