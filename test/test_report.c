@@ -20,6 +20,7 @@ int main(void)
     output[bytes] = '\0';
     fclose(stream);
     if (strstr(output, "Records analyzed: 1") == NULL ||
+        strstr(output, "Report generated: ") == NULL ||
         strstr(output, "Latency: avg 10.00 ms") == NULL ||
         strstr(output, "SIMULATED ONLY") == NULL) {
         puts("FAIL: report content"); return 1;

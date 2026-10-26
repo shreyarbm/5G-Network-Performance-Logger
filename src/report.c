@@ -1,6 +1,8 @@
 #include <stdio.h>
+#include <time.h>
 
 #include "report.h"
+#include "utils.h"
 
 AppStatus report_write(FILE *output, const KpiMeasurement *records, size_t count,
                        size_t malformed_count, const KpiThresholds *thresholds)
@@ -13,6 +15,8 @@ AppStatus report_write(FILE *output, const KpiMeasurement *records, size_t count
     size_t violations;
     size_t analyzed_records;
     AppStatus status;
+    char generated_timestamp[32];
+    time_t current_time;
 
     if (output == NULL || thresholds == NULL || (records == NULL && count > 0U)) {
         return APP_STATUS_INVALID_INPUT;
@@ -21,6 +25,13 @@ AppStatus report_write(FILE *output, const KpiMeasurement *records, size_t count
     status = analysis_calculate(records, count, &statistics, &invalid_count);
     if (status != APP_STATUS_OK) {
         return status;
+    }
+
+    current_time = time(NULL);
+    if (current_time == (time_t)-1 ||
+        utils_format_timestamp(current_time, generated_timestamp,
+                               sizeof(generated_timestamp)) != APP_STATUS_OK) {
+        return APP_STATUS_ERROR;
     }
 
     violations = 0U;
@@ -42,9 +53,11 @@ AppStatus report_write(FILE *output, const KpiMeasurement *records, size_t count
     }
 
     if (fprintf(output, "5G Telecom Network Performance Logger report\n"
+                "Report generated: %s\n"
                 "Data source: SIMULATED ONLY (not actual 5G performance)\n"
                 "Records analyzed: %lu\nMalformed CSV rows skipped: %lu\n"
                 "Invalid measurements skipped: %lu\n",
+                generated_timestamp,
                 (unsigned long)statistics.record_count,
                 (unsigned long)malformed_count,
                 (unsigned long)invalid_count) < 0) {

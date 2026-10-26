@@ -1,13 +1,11 @@
 #include <stdio.h>
-#include <time.h>
-
 #include "alerts.h"
+#include "utils.h"
 
 AppStatus alerts_generate(FILE *output, const KpiMeasurement *measurement,
                           const KpiThresholdResult *results, size_t result_count)
 {
     char timestamp_text[32];
-    struct tm *time_info;
     size_t index;
     int violations;
 
@@ -16,10 +14,8 @@ AppStatus alerts_generate(FILE *output, const KpiMeasurement *measurement,
         return APP_STATUS_INVALID_INPUT;
     }
 
-    time_info = localtime(&measurement->timestamp);
-    if (time_info == NULL ||
-        strftime(timestamp_text, sizeof(timestamp_text), "%Y-%m-%d %H:%M:%S",
-                 time_info) == 0U) {
+    if (utils_format_timestamp(measurement->timestamp, timestamp_text,
+                               sizeof(timestamp_text)) != APP_STATUS_OK) {
         return APP_STATUS_ERROR;
     }
 

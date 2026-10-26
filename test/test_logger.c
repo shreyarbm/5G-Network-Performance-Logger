@@ -28,11 +28,14 @@ int main(void)
         count != 2U || malformed != 1U || loaded[1].timestamp != input.timestamp) {
         puts("FAIL: read valid and malformed rows"); (void)remove(path); return 1;
     }
+    if (logger_append("build/no_logger_test_dir/output.csv", &input) == APP_STATUS_OK) {
+        puts("FAIL: write path error handling"); (void)remove(path); return 1;
+    }
     if (logger_load("build/does_not_exist.csv", loaded, 4U, &count,
                     &malformed) == APP_STATUS_OK) {
         puts("FAIL: missing file handling"); (void)remove(path); return 1;
     }
     (void)remove(path);
-    puts("PASS: empty CSV, append, retrieval, malformed rows, and missing file");
+    puts("PASS: empty CSV, append, retrieval, malformed rows, and file errors");
     return 0;
 }

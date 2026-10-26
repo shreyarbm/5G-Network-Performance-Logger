@@ -54,14 +54,14 @@ AppStatus logger_append(const char *path, const KpiMeasurement *measurement)
     return (close_status == 0) ? APP_STATUS_OK : APP_STATUS_ERROR;
 }
 
-static int logger_parse_row(char *line, KpiMeasurement *measurement)
+static int logger_parse_row(const char *line, KpiMeasurement *measurement)
 {
     long long timestamp_value;
     char source[16];
     char extra;
     int fields;
     size_t comma_count;
-    char *cursor;
+    const char *cursor;
 
     comma_count = 0U;
     for (cursor = line; *cursor != '\0'; ++cursor) {

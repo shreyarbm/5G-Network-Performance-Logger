@@ -15,6 +15,12 @@ int main(void)
     size_t index;
 
     thresholds_load_defaults(&thresholds);
+    thresholds.latency_warning_ms = 300.0;
+    if (thresholds_check(&m, &thresholds, results, KPI_THRESHOLD_RESULT_CAPACITY,
+                         &count) == APP_STATUS_OK) {
+        puts("FAIL: invalid threshold configuration"); return 1;
+    }
+    thresholds_load_defaults(&thresholds);
     if (thresholds_check(&m, &thresholds, results, KPI_THRESHOLD_RESULT_CAPACITY,
                          &count) != APP_STATUS_OK) {
         puts("FAIL: normal threshold check"); return 1;

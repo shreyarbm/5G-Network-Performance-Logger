@@ -20,38 +20,60 @@ int auth_check_credentials(const char *username, const char *password)
            strcmp(password, DEMO_PASSWORD) == 0;
 }
 
-AppStatus auth_login(void)
+AppStatus auth_login_from(FILE *input, FILE *output)
 {
     char username[AUTH_INPUT_CAPACITY];
     char password[AUTH_INPUT_CAPACITY];
     unsigned int attempt;
 
-    puts("Demo login (not secure; demonstration only).");
+    if (input == NULL || output == NULL) {
+        return APP_STATUS_INVALID_INPUT;
+    }
+    if (fputs("Demo login (not secure; demonstration only).\n", output) == EOF) {
+        return APP_STATUS_ERROR;
+    }
 
     for (attempt = 0U; attempt < AUTH_MAX_ATTEMPTS; ++attempt) {
-        if (utils_read_line("Username: ", username, sizeof(username)) != APP_STATUS_OK ||
+        if (utils_read_line_from(input, output, "Username: ", username,
+                                 sizeof(username)) != APP_STATUS_OK ||
             username[0] == '\0') {
-            puts("Username is empty or could not be read.");
+            if (fputs("Username is empty or could not be read.\n", output) == EOF) {
+                return APP_STATUS_ERROR;
+            }
             continue;
         }
 
-        if (utils_read_line("Password: ", password, sizeof(password)) != APP_STATUS_OK ||
+        if (utils_read_line_from(input, output, "Password: ", password,
+                                 sizeof(password)) != APP_STATUS_OK ||
             password[0] == '\0') {
-            puts("Password is empty or could not be read.");
+            if (fputs("Password is empty or could not be read.\n", output) == EOF) {
+                return APP_STATUS_ERROR;
+            }
             continue;
         }
 
         if (strcmp(username, DEMO_USERNAME) == 0 &&
             strcmp(password, DEMO_PASSWORD) == 0) {
-            puts("Demo login successful.");
+            if (fputs("Demo login successful.\n", output) == EOF) {
+                return APP_STATUS_ERROR;
+            }
             return APP_STATUS_OK;
         }
 
-        puts("Invalid username or password.");
+        if (fputs("Invalid username or password.\n", output) == EOF) {
+            return APP_STATUS_ERROR;
+        }
     }
 
-    puts("Maximum login attempts reached.");
+    if (fputs("Maximum login attempts reached.\n", output) == EOF) {
+        return APP_STATUS_ERROR;
+    }
     return APP_STATUS_ERROR;
+}
+
+AppStatus auth_login(void)
+{
+    return auth_login_from(stdin, stdout);
 }
 
 

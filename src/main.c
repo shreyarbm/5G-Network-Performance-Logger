@@ -20,10 +20,9 @@
 static void print_measurement(const KpiMeasurement *measurement)
 {
     char timestamp_text[32];
-    struct tm *time_info = localtime(&measurement->timestamp);
 
-    if (time_info != NULL && strftime(timestamp_text, sizeof(timestamp_text),
-                                      "%Y-%m-%d %H:%M:%S", time_info) != 0U) {
+    if (utils_format_timestamp(measurement->timestamp, timestamp_text,
+                               sizeof(timestamp_text)) == APP_STATUS_OK) {
         printf("Timestamp: %s\n", timestamp_text);
     } else {
         puts("Timestamp: unavailable");
@@ -31,7 +30,7 @@ static void print_measurement(const KpiMeasurement *measurement)
     printf("Latency: %.2f ms | Throughput: %.2f Mbps | Packet loss: %.2f%%\n",
            measurement->latency_ms, measurement->throughput_mbps,
            measurement->packet_loss_percent);
-    printf("CPU: %.2f%% | Memory: %.2f%% | Source: SIMULATED\n",
+    printf("CPU: %.2f%% | Memory: %.2f%%\n",
            measurement->cpu_utilization_percent,
            measurement->memory_utilization_percent);
 }
@@ -105,7 +104,6 @@ int main(void)
     size_t result_count;
     size_t index;
     int choice;
-    int input_result;
     int has_current;
 
     printf("%s\nVersion: %s\n", APP_TITLE, APP_VERSION);
@@ -126,7 +124,7 @@ int main(void)
 
     for (;;) {
         show_menu();
-        input_result = read_choice(&choice);
+        int input_result = read_choice(&choice);
         if (input_result == -1) {
             puts("Input closed; exiting.");
             break;
@@ -209,15 +207,9 @@ int main(void)
                 puts("Could not generate the report file.");
             }
         } else {
-            puts("Goodbye.");
             break;
         }
     }
     return APP_STATUS_OK;
 }
-
-
-
-
-
 
