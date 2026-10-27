@@ -280,16 +280,18 @@ TEST(Logger, AppendsAndPreservesTimestamp)
 {
     const char *path = "build/gtest/kpi_log.csv";
     const KpiMeasurement measurement = Sample((time_t)1700000000);
-    KpiMeasurement loaded[2]{};
+    KpiHistory history{};
     std::size_t count = 0U;
     std::size_t malformed = 0U;
     (void)std::remove(path);
     ASSERT_EQ(logger_append(path, &measurement), APP_STATUS_OK);
-    ASSERT_EQ(logger_load(path, loaded, 2U, &count, &malformed), APP_STATUS_OK);
+    ASSERT_EQ(logger_history_load(path, &history, &malformed), APP_STATUS_OK);
+    count = history.count;
     EXPECT_EQ(count, 1U);
     EXPECT_EQ(malformed, 0U);
-    EXPECT_EQ(loaded[0].timestamp, measurement.timestamp);
-    EXPECT_DOUBLE_EQ(loaded[0].latency_ms, measurement.latency_ms);
+    ASSERT_NE(logger_history_get(&history, 0U), nullptr);
+    EXPECT_EQ(logger_history_get(&history, 0U)->timestamp, measurement.timestamp);
+    EXPECT_DOUBLE_EQ(logger_history_get(&history, 0U)->latency_ms, measurement.latency_ms);
     (void)std::remove(path);
 }
 
@@ -297,13 +299,14 @@ TEST(Logger, AppendsMultipleRowsWithoutDuplicateHeaders)
 {
     const char *path = "build/gtest/kpi_log.csv";
     const KpiMeasurement measurement = Sample();
-    KpiMeasurement loaded[2]{};
+    KpiHistory history{};
     std::size_t count = 0U;
     std::size_t malformed = 0U;
     (void)std::remove(path);
     ASSERT_EQ(logger_append(path, &measurement), APP_STATUS_OK);
     ASSERT_EQ(logger_append(path, &measurement), APP_STATUS_OK);
-    ASSERT_EQ(logger_load(path, loaded, 2U, &count, &malformed), APP_STATUS_OK);
+    ASSERT_EQ(logger_history_load(path, &history, &malformed), APP_STATUS_OK);
+    count = history.count;
     EXPECT_EQ(count, 2U);
     EXPECT_EQ(malformed, 0U);
     (void)std::remove(path);
@@ -313,7 +316,7 @@ TEST(Logger, HandlesMalformedMissingAndInvalidInputs)
 {
     const char *path = "build/gtest/kpi_log.csv";
     const KpiMeasurement measurement = Sample();
-    KpiMeasurement loaded[2]{};
+    KpiHistory history{};
     std::size_t count = 0U;
     std::size_t malformed = 0U;
     FILE *file;
@@ -323,12 +326,38 @@ TEST(Logger, HandlesMalformedMissingAndInvalidInputs)
     ASSERT_NE(file, nullptr);
     ASSERT_NE(std::fputs("not,a,valid,row\n", file), EOF);
     ASSERT_EQ(std::fclose(file), 0);
-    ASSERT_EQ(logger_load(path, loaded, 2U, &count, &malformed), APP_STATUS_OK);
+    ASSERT_EQ(logger_history_load(path, &history, &malformed), APP_STATUS_OK);
+    count = history.count;
     EXPECT_EQ(count, 1U);
     EXPECT_EQ(malformed, 1U);
-    EXPECT_EQ(logger_load("build/gtest/missing.csv", loaded, 2U, &count, &malformed), APP_STATUS_ERROR);
+    EXPECT_EQ(logger_history_load("build/gtest/missing.csv", &history,
+                                  &malformed), APP_STATUS_ERROR);
     EXPECT_EQ(logger_append(path, nullptr), APP_STATUS_INVALID_INPUT);
     (void)std::remove(path);
+}
+
+TEST(LoggerHistory, RetainsLatestRecordsInChronologicalOrder)
+{
+    KpiHistory history{};
+    KpiMeasurement copied[LOGGER_HISTORY_CAPACITY]{};
+    std::size_t count = 0U;
+    EXPECT_EQ(logger_history_copy(&history, copied, LOGGER_HISTORY_CAPACITY,
+                                  &count), APP_STATUS_OK);
+    EXPECT_EQ(count, 0U);
+    EXPECT_EQ(logger_history_get(&history, 0U), nullptr);
+
+    for (std::size_t index = 0U; index < LOGGER_HISTORY_CAPACITY + 1U; ++index) {
+        KpiMeasurement measurement = Sample(static_cast<time_t>(index + 1U));
+        ASSERT_EQ(logger_history_add(&history, &measurement), APP_STATUS_OK);
+    }
+    ASSERT_EQ(history.count, LOGGER_HISTORY_CAPACITY);
+    ASSERT_EQ(logger_history_copy(&history, copied, LOGGER_HISTORY_CAPACITY,
+                                  &count), APP_STATUS_OK);
+    EXPECT_EQ(count, LOGGER_HISTORY_CAPACITY);
+    EXPECT_EQ(copied[0].timestamp, static_cast<time_t>(2));
+    EXPECT_EQ(copied[LOGGER_HISTORY_CAPACITY - 1U].timestamp,
+              static_cast<time_t>(LOGGER_HISTORY_CAPACITY + 1U));
+    EXPECT_EQ(logger_history_add(&history, nullptr), APP_STATUS_INVALID_INPUT);
 }
 
 TEST(ThresholdDefaults, LoadsDocumentedDefaults)
@@ -578,6 +607,29 @@ TEST(Report, ReportsMalformedAndInvalidRows)
     EXPECT_NE(text.find("Malformed CSV rows skipped: 2"), std::string::npos);
     EXPECT_NE(text.find("Invalid measurements skipped: 1"), std::string::npos);
     EXPECT_NE(text.find("Data quality: INCOMPLETE"), std::string::npos);
+    Close(output);
+}
+
+TEST(Report, AnalyzesCircularHistorySnapshot)
+{
+    KpiHistory history{};
+    KpiMeasurement records[LOGGER_HISTORY_CAPACITY]{};
+    KpiThresholds thresholds{};
+    std::size_t count = 0U;
+    FILE *output = std::tmpfile();
+    ASSERT_NE(output, nullptr);
+    thresholds_load_defaults(&thresholds);
+    for (std::size_t index = 0U; index < LOGGER_HISTORY_CAPACITY + 1U; ++index) {
+        KpiMeasurement measurement = Sample(static_cast<time_t>(index + 1U));
+        measurement.latency_ms = static_cast<double>(index);
+        ASSERT_EQ(logger_history_add(&history, &measurement), APP_STATUS_OK);
+    }
+    ASSERT_EQ(logger_history_copy(&history, records, LOGGER_HISTORY_CAPACITY,
+                                  &count), APP_STATUS_OK);
+    ASSERT_EQ(report_write(output, records, count, 0U, &thresholds), APP_STATUS_OK);
+    const std::string text = Contents(output);
+    EXPECT_NE(text.find("Records analyzed: 1000"), std::string::npos);
+    EXPECT_NE(text.find("Latency: avg 500.50 ms"), std::string::npos);
     Close(output);
 }
 

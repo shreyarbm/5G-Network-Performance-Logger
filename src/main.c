@@ -7,6 +7,7 @@
 #include "alerts.h"
 #include "analysis.h"
 #include "auth.h"
+#include "collector.h"
 #include "common.h"
 #include "kpi.h"
 #include "logger.h"
@@ -14,7 +15,7 @@
 #include "thresholds.h"
 #include "utils.h"
 
-#define HISTORY_CAPACITY 1000U
+#define HISTORY_CAPACITY LOGGER_HISTORY_CAPACITY
 #define INPUT_CAPACITY 64U
 
 static void print_measurement(const KpiMeasurement *measurement)
@@ -48,16 +49,21 @@ static int read_choice(int *choice)
     errno = 0;
     value = strtol(text, &end, 10);
     while (isspace((unsigned char)*end) != 0) end++;
-    if (errno != 0 || end == text || *end != '\0' || value < 1L || value > 8L) return 0;
+    if (errno != 0 || end == text || *end != '\0' || value < 1L || value > 9L) return 0;
     *choice = (int)value;
     return 1;
 }
 
-static AppStatus load_history(KpiMeasurement *records, size_t *count,
-                              size_t *malformed)
+static AppStatus load_history(KpiCollector *collector, KpiHistory *history,
+                              KpiMeasurement *records,
+                              size_t *count, size_t *malformed)
 {
-    return logger_load(LOGGER_DEFAULT_PATH, records, HISTORY_CAPACITY,
-                       count, malformed);
+    AppStatus status = collector_load_history(collector, history, malformed);
+    if (status != APP_STATUS_OK) {
+        *count = 0U;
+        return status;
+    }
+    return logger_history_copy(history, records, HISTORY_CAPACITY, count);
 }
 
 static void print_threshold_results(const KpiThresholdResult *results, size_t count)
@@ -89,12 +95,15 @@ static void show_menu(void)
     puts("5. Check latest measurement thresholds");
     puts("6. Generate alerts for latest measurement");
     puts("7. Generate terminal and text-file report");
-    puts("8. Exit");
+    puts("8. Start or stop background simulated collection");
+    puts("9. Exit");
 }
 
 int main(void)
 {
     AppStatus status;
+    KpiCollector collector;
+    KpiHistory history;
     KpiMeasurement records[HISTORY_CAPACITY];
     KpiMeasurement current;
     KpiThresholds thresholds;
@@ -113,16 +122,30 @@ int main(void)
         return status;
     }
 
+    status = collector_init(&collector, LOGGER_DEFAULT_PATH,
+                            COLLECTOR_DEFAULT_INTERVAL_SECONDS);
+    if (status != APP_STATUS_OK) {
+        puts("Could not initialize background collector synchronization.");
+        return status;
+    }
+
     (void)srand((unsigned int)time(NULL));
     thresholds_load_defaults(&thresholds);
     has_current = 0;
-    status = load_history(records, &count, &malformed);
+    status = load_history(&collector, &history, records, &count, &malformed);
     if (status == APP_STATUS_OK && count > 0U) {
-        current = records[count - 1U];
-        has_current = 1;
+        status = collector_set_latest(&collector, &records[count - 1U]);
+        if (status != APP_STATUS_OK) {
+            (void)collector_destroy(&collector);
+            puts("Could not initialize the latest measurement.");
+            return status;
+        }
     }
 
     for (;;) {
+        if (collector_take_status(&collector) != APP_STATUS_OK) {
+            puts("Background collection or CSV save failed.");
+        }
         show_menu();
         int input_result = read_choice(&choice);
         if (input_result == -1) {
@@ -130,15 +153,12 @@ int main(void)
             break;
         }
         if (input_result == 0) {
-            puts("Invalid choice. Enter a number from 1 to 8.");
+            puts("Invalid choice. Enter a number from 1 to 9.");
             continue;
         }
 
         if (choice == 1) {
-            status = kpi_collect_simulated(&current);
-            if (status == APP_STATUS_OK) {
-                status = logger_append(LOGGER_DEFAULT_PATH, &current);
-            }
+            status = collector_collect_now(&collector, &current);
             if (status != APP_STATUS_OK) {
                 puts("Collection or CSV save failed; check data/ permissions and disk space.");
                 continue;
@@ -147,15 +167,17 @@ int main(void)
             puts("Saved simulated measurement:");
             print_measurement(&current);
         } else if (choice == 2) {
+            status = collector_get_latest(&collector, &current);
+            has_current = status == APP_STATUS_OK;
             if (has_current == 0) {
-                puts("No measurement is available yet. Collect one or load a CSV record.");
+                puts("No measurement is available yet. Collect one or start background collection.");
             } else {
                 print_measurement(&current);
             }
         } else if (choice == 3) {
-            status = load_history(records, &count, &malformed);
+            status = load_history(&collector, &history, records, &count, &malformed);
             if (status != APP_STATUS_OK) {
-                puts("Could not read data/kpi_log.csv (missing, inaccessible, or over capacity).");
+                puts("Could not read data/kpi_log.csv (missing or inaccessible).");
                 continue;
             }
             printf("Valid records: %lu; malformed rows skipped: %lu\n",
@@ -166,7 +188,7 @@ int main(void)
             }
             if (count == 0U) puts("No historical measurements found.");
         } else if (choice == 4) {
-            status = load_history(records, &count, &malformed);
+            status = load_history(&collector, &history, records, &count, &malformed);
             if (status != APP_STATUS_OK) {
                 puts("Could not read historical measurements.");
                 continue;
@@ -174,6 +196,8 @@ int main(void)
             status = report_write(stdout, records, count, malformed, &thresholds);
             if (status != APP_STATUS_OK) puts("Analysis display failed.");
         } else if (choice == 5 || choice == 6) {
+            status = collector_get_latest(&collector, &current);
+            has_current = status == APP_STATUS_OK;
             if (has_current == 0) {
                 puts("No measurement is available yet.");
                 continue;
@@ -191,24 +215,43 @@ int main(void)
                 puts("Alert output failed.");
             }
         } else if (choice == 7) {
-            status = load_history(records, &count, &malformed);
+            char report_path[REPORT_PATH_CAPACITY];
+            status = load_history(&collector, &history, records, &count, &malformed);
             if (status != APP_STATUS_OK) {
                 puts("Could not read historical measurements for report.");
                 continue;
             }
             status = report_write(stdout, records, count, malformed, &thresholds);
             if (status == APP_STATUS_OK) {
-                status = report_generate(REPORT_DEFAULT_PATH, records, count,
-                                         malformed, &thresholds);
+                status = report_generate_numbered(records, count, malformed,
+                                                  &thresholds, report_path,
+                                                  sizeof(report_path));
             }
             if (status == APP_STATUS_OK) {
-                printf("Report saved to %s\n", REPORT_DEFAULT_PATH);
+                printf("Report saved to %s\n", report_path);
             } else {
                 puts("Could not generate the report file.");
+            }
+        } else if (choice == 8) {
+            int is_running;
+            status = collector_is_running(&collector, &is_running);
+            if (status == APP_STATUS_OK) {
+                status = (is_running != 0) ? collector_stop(&collector)
+                                           : collector_start(&collector);
+            }
+            if (status == APP_STATUS_OK) {
+                puts(is_running != 0 ? "Background collection stopped."
+                                     : "Background simulated collection started (5-second interval).");
+            } else {
+                puts("Could not change background collection state.");
             }
         } else {
             break;
         }
+    }
+    if (collector_destroy(&collector) != APP_STATUS_OK) {
+        puts("Could not cleanly stop the background collector.");
+        return APP_STATUS_ERROR;
     }
     return APP_STATUS_OK;
 }

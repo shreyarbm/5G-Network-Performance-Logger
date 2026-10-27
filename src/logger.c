@@ -94,31 +94,99 @@ static int logger_parse_row(const char *line, KpiMeasurement *measurement)
     return 1;
 }
 
-AppStatus logger_load(const char *path, KpiMeasurement *records,
-                      size_t capacity, size_t *record_count,
-                      size_t *malformed_count)
+void logger_history_init(KpiHistory *history)
+{
+    if (history != NULL) {
+        history->next_write_index = 0U;
+        history->count = 0U;
+    }
+}
+
+AppStatus logger_history_add(KpiHistory *history,
+                             const KpiMeasurement *measurement)
+{
+    if (history == NULL || measurement == NULL ||
+        kpi_validate(measurement) != APP_STATUS_OK ||
+        history->next_write_index >= LOGGER_HISTORY_CAPACITY ||
+        history->count > LOGGER_HISTORY_CAPACITY) {
+        return APP_STATUS_INVALID_INPUT;
+    }
+
+    history->records[history->next_write_index] = *measurement;
+    history->next_write_index =
+        (history->next_write_index + 1U) % LOGGER_HISTORY_CAPACITY;
+    if (history->count < LOGGER_HISTORY_CAPACITY) {
+        history->count++;
+    }
+    return APP_STATUS_OK;
+}
+
+const KpiMeasurement *logger_history_get(const KpiHistory *history,
+                                         size_t chronological_index)
+{
+    size_t oldest_index;
+    size_t physical_index;
+
+    if (history == NULL || history->count > LOGGER_HISTORY_CAPACITY ||
+        history->next_write_index >= LOGGER_HISTORY_CAPACITY ||
+        chronological_index >= history->count) {
+        return NULL;
+    }
+
+    oldest_index = (history->count == LOGGER_HISTORY_CAPACITY)
+                       ? history->next_write_index
+                       : 0U;
+    physical_index = (oldest_index + chronological_index) %
+                     LOGGER_HISTORY_CAPACITY;
+    return &history->records[physical_index];
+}
+
+AppStatus logger_history_copy(const KpiHistory *history,
+                              KpiMeasurement *records, size_t capacity,
+                              size_t *record_count)
+{
+    size_t index;
+
+    if (history == NULL || record_count == NULL ||
+        (records == NULL && history->count > 0U) ||
+        history->count > LOGGER_HISTORY_CAPACITY ||
+        history->next_write_index >= LOGGER_HISTORY_CAPACITY ||
+        capacity < history->count) {
+        return APP_STATUS_INVALID_INPUT;
+    }
+
+    for (index = 0U; index < history->count; ++index) {
+        const KpiMeasurement *measurement = logger_history_get(history, index);
+        if (measurement == NULL) {
+            return APP_STATUS_ERROR;
+        }
+        records[index] = *measurement;
+    }
+    *record_count = history->count;
+    return APP_STATUS_OK;
+}
+
+AppStatus logger_history_load(const char *path, KpiHistory *history,
+                              size_t *malformed_count)
 {
     FILE *file;
     char line[LOGGER_LINE_CAPACITY];
-    size_t loaded;
     size_t malformed;
     int first_line;
     int file_error;
     KpiMeasurement parsed;
 
-    if (path == NULL || records == NULL || record_count == NULL ||
-        malformed_count == NULL || capacity == 0U) {
+    if (path == NULL || history == NULL || malformed_count == NULL) {
         return APP_STATUS_INVALID_INPUT;
     }
 
-    *record_count = 0U;
+    logger_history_init(history);
     *malformed_count = 0U;
     file = fopen(path, "r");
     if (file == NULL) {
         return APP_STATUS_ERROR;
     }
 
-    loaded = 0U;
     malformed = 0U;
     first_line = 1;
     while (fgets(line, (int)sizeof(line), file) != NULL) {
@@ -144,14 +212,11 @@ AppStatus logger_load(const char *path, KpiMeasurement *records,
         first_line = 0;
 
         if (logger_parse_row(line, &parsed) != 0) {
-            if (loaded >= capacity) {
+            if (logger_history_add(history, &parsed) != APP_STATUS_OK) {
                 (void)fclose(file);
-                *record_count = loaded;
                 *malformed_count = malformed;
                 return APP_STATUS_ERROR;
             }
-            records[loaded] = parsed;
-            loaded++;
         } else {
             malformed++;
         }
@@ -161,15 +226,8 @@ AppStatus logger_load(const char *path, KpiMeasurement *records,
     if (fclose(file) != 0) {
         file_error = 1;
     }
-    if (file_error != 0) {
-        *record_count = loaded;
-        *malformed_count = malformed;
-        return APP_STATUS_ERROR;
-    }
-
-    *record_count = loaded;
     *malformed_count = malformed;
-    return APP_STATUS_OK;
+    return file_error == 0 ? APP_STATUS_OK : APP_STATUS_ERROR;
 }
 
 

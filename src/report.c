@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 #include "report.h"
@@ -114,6 +115,64 @@ AppStatus report_generate(const char *path, const KpiMeasurement *records,
         status = APP_STATUS_ERROR;
     }
     return status;
+}
+
+AppStatus report_generate_numbered(const KpiMeasurement *records,
+                                   size_t count, size_t malformed_count,
+                                   const KpiThresholds *thresholds,
+                                   char *path_output,
+                                   size_t path_output_capacity)
+{
+    char candidate[REPORT_PATH_CAPACITY];
+    unsigned long report_number;
+    AppStatus status;
+    FILE *file;
+
+    if (thresholds == NULL || path_output == NULL ||
+        path_output_capacity == 0U ||
+        (records == NULL && count > 0U)) {
+        return APP_STATUS_INVALID_INPUT;
+    }
+
+    for (report_number = 1UL; report_number <= 999999UL; ++report_number) {
+        FILE *existing_file;
+        int path_length;
+
+        path_length = snprintf(candidate, sizeof(candidate),
+                               "reports/report_%lu.txt", report_number);
+        if (path_length < 0 || (size_t)path_length >= sizeof(candidate)) {
+            return APP_STATUS_ERROR;
+        }
+        if ((size_t)path_length >= path_output_capacity) {
+            return APP_STATUS_INVALID_INPUT;
+        }
+
+        existing_file = fopen(candidate, "r");
+        if (existing_file != NULL) {
+            if (fclose(existing_file) != 0) {
+                return APP_STATUS_ERROR;
+            }
+            continue;
+        }
+
+        file = fopen(candidate, "wx");
+        if (file == NULL) {
+            return APP_STATUS_ERROR;
+        }
+        status = report_write(file, records, count, malformed_count,
+                              thresholds);
+        if (fflush(file) != 0) {
+            status = APP_STATUS_ERROR;
+        }
+        if (fclose(file) != 0) {
+            status = APP_STATUS_ERROR;
+        }
+        if (status == APP_STATUS_OK) {
+            (void)memcpy(path_output, candidate, (size_t)path_length + 1U);
+        }
+        return status;
+    }
+    return APP_STATUS_ERROR;
 }
 
 

@@ -8,6 +8,8 @@ int main(void)
     KpiThresholds thresholds;
     FILE *stream = tmpfile();
     char output[2048];
+    char generated_path[REPORT_PATH_CAPACITY];
+    char second_generated_path[REPORT_PATH_CAPACITY];
     size_t bytes;
 
     if (stream == NULL) return puts("FAIL: temporary report stream"), 1;
@@ -33,6 +35,20 @@ int main(void)
     fclose(stream);
     if (report_generate("build/missing_directory/report.txt", &m, 1U, 0U, &thresholds) == APP_STATUS_OK) {
         puts("FAIL: report path error handling"); return 1;
+    }
+    if (report_generate_numbered(&m, 1U, 0U, &thresholds, generated_path,
+                                 sizeof(generated_path)) != APP_STATUS_OK ||
+        report_generate_numbered(&m, 1U, 0U, &thresholds,
+                                 second_generated_path,
+                                 sizeof(second_generated_path)) != APP_STATUS_OK ||
+        strcmp(generated_path, second_generated_path) == 0 ||
+        strncmp(generated_path, "reports/report_", 15U) != 0 ||
+        remove(generated_path) != 0 || remove(second_generated_path) != 0) {
+        puts("FAIL: numbered report creation and unique names"); return 1;
+    }
+    if (report_generate_numbered(&m, 1U, 0U, &thresholds, generated_path,
+                                 1U) != APP_STATUS_INVALID_INPUT) {
+        puts("FAIL: numbered report path capacity validation"); return 1;
     }
     puts("PASS: report content, empty data, and output error handling");
     return 0;
