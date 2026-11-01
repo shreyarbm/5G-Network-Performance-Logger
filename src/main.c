@@ -115,7 +115,7 @@ int main(void)
     int choice;
     int has_current;
 
-    printf("%s\nVersion: %s\n", APP_TITLE, APP_VERSION);
+    printf("%s\n", APP_TITLE);
     status = auth_login();
     if (status != APP_STATUS_OK) {
         puts("Access denied.");

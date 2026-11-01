@@ -29,10 +29,6 @@ AppStatus auth_login_from(FILE *input, FILE *output)
     if (input == NULL || output == NULL) {
         return APP_STATUS_INVALID_INPUT;
     }
-    if (fputs("Demo login (not secure; demonstration only).\n", output) == EOF) {
-        return APP_STATUS_ERROR;
-    }
-
     for (attempt = 0U; attempt < AUTH_MAX_ATTEMPTS; ++attempt) {
         if (utils_read_line_from(input, output, "Username: ", username,
                                  sizeof(username)) != APP_STATUS_OK ||

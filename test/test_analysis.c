@@ -33,6 +33,10 @@ int main(void)
         s.record_count != 2U || invalid != 1U) {
         puts("FAIL: invalid measurement skipped"); return 1;
     }
+    m[0].latency_ms = -1.0;
+    if (analysis_calculate(m, 1U, &s, &invalid) != APP_STATUS_OK || invalid != 1U) {
+        return 1;
+    }
     if (analysis_calculate(NULL, 0U, &s, &invalid) != APP_STATUS_OK || s.record_count != 0U) {
         puts("FAIL: empty dataset"); return 1;
     }
